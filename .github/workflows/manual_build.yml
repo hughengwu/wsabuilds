@@ -1,0 +1,47 @@
+name: Manual Build (with Houdini)
+on:
+  workflow_dispatch:
+    inputs:
+      arch:
+        description: CPU architecture
+        type: choice
+        options: [x64, arm64]
+        default: x64
+      root_sol:
+        description: Root solution
+        type: choice
+        options: ["none", "magisk", "kernelsu"]
+        default: none
+      install_gapps:
+        description: Install GApps
+        type: boolean
+        default: false
+      remove_amazon:
+        description: Remove Amazon Appstore
+        type: boolean
+        default: true
+      magiskver:
+        description: Magisk version (if root=magisk)
+        type: choice
+        options: [stable, beta, canary, debug]
+        default: stable
+      wsa_ver:
+        description: Label for release tag
+        type: string
+        default: manual
+
+jobs:
+  build:
+    permissions: write-all
+    uses: ./.github/workflows/build.yml
+    with:
+      arch: ${{ inputs.arch }}
+      root: ${{ inputs.root_sol }}
+      gapps: ${{ inputs.install_gapps && '--install-gapps' || '' }}
+      gappsver: ${{ inputs.install_gapps && 'MindTheGapps' || 'none' }}
+      amazonflag: ${{ inputs.remove_amazon && '--remove-amazon' || '' }}
+      magiskver: ${{ inputs.magiskver }}
+      devicemodel: redfin
+      compressformat: zip
+      wsa_ver: ${{ inputs.wsa_ver }}
+    secrets: inherit
