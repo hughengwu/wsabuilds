@@ -377,7 +377,7 @@ make_changes() {
 
     # Patch build.prop to clear emulator/test-key markers (fixes error 709/607)
     echo "Patching build.prop files (fixDeviceProps)..."
-    python3 "$WORK_DIR/scripts/fixDeviceProps.py" "$SYSTEM_MNT" "$VENDOR_MNT" || echo "Warning: fixDeviceProps.py failed, continuing..."
+    sudo python3 "$WORK_DIR/scripts/fixDeviceProps.py" "$SYSTEM_MNT" "$VENDOR_MNT" || echo "Warning: fixDeviceProps.py failed, continuing..."
 
     # Set timestamps for all files in vendor and system mounts
     echo "Setting timestamps for all files in vendor and system mounts..."

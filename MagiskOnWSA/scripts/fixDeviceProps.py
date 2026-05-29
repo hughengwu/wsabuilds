@@ -41,9 +41,13 @@ class Prop(OrderedDict):
 # against actual hardware and crash if it doesn't match.
 # ---------------------------------------------------------------------------
 OVERRIDE_PROPS: dict[str, str] = {
-    # Build type: test-keys → release-keys (primary 709 trigger)
+    # Build type / security flags (709 triggers)
     "ro.build.tags":                    "release-keys",
-    # Clear QEMU/emulator markers (primary 607 trigger)
+    "ro.build.type":                    "user",
+    "ro.debuggable":                    "0",
+    "ro.secure":                        "1",
+    "ro.adb.secure":                    "1",
+    # QEMU/emulator markers (607 triggers)
     "ro.kernel.qemu":                   "0",
     "ro.boot.qemu":                     "0",
     "ro.kernel.qemu.gles":              "0",
