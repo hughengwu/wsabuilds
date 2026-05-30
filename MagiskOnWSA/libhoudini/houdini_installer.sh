@@ -419,9 +419,16 @@ make_changes() {
         sudo setfattr -n security.selinux -v "u:object_r:vendor_configs_file:s0" "$VENDOR_MNT"/etc/vintf/manifest/android.hardware.sensors@2.1-multihal.xml || echo "Warning: setfattr sensors manifest failed"
 
         # 5) multihal sub-HAL config → /vendor/etc/sensors/hals.conf
+        #    /vendor/etc/sensors is a NEW directory — it MUST be labeled too,
+        #    or hal_sensors_default cannot search into it (enforcing) and the
+        #    multihal logs "Failed to load subHal config file". Use vendor_file:
+        #    proven readable by this domain (the subhal .so loaded from it).
         sudo mkdir -p "$VENDOR_MNT/etc/sensors"
+        sudo setfattr -n security.selinux -v "u:object_r:vendor_file:s0" "$VENDOR_MNT/etc/sensors" || echo "Warning: setfattr sensors dir failed"
         sudo cp "$SENSORS_SRC/etc_sensors/hals.conf" "$VENDOR_MNT/etc/sensors/hals.conf"
-        sudo setfattr -n security.selinux -v "u:object_r:vendor_configs_file:s0" "$VENDOR_MNT/etc/sensors/hals.conf" || echo "Warning: setfattr hals.conf failed"
+        sudo chown root:root "$VENDOR_MNT/etc/sensors/hals.conf"
+        sudo chmod 644 "$VENDOR_MNT/etc/sensors/hals.conf"
+        sudo setfattr -n security.selinux -v "u:object_r:vendor_file:s0" "$VENDOR_MNT/etc/sensors/hals.conf" || echo "Warning: setfattr hals.conf failed"
 
         echo "Fake sensors HAL installed."
     else
