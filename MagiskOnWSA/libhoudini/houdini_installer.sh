@@ -379,6 +379,55 @@ make_changes() {
     echo "Patching build.prop files (fixDeviceProps)..."
     sudo python3 "$WORK_DIR/scripts/fixDeviceProps.py" "$SYSTEM_MNT" "$VENDOR_MNT" || echo "Warning: fixDeviceProps.py failed, continuing..."
 
+    # ── Install fake sensors HAL (adds accelerometer+gyroscope) ───────────────
+    # WSA ships zero sensors; CloudWalk/face-liveness SDKs require an
+    # accelerometer/gyroscope and fail with 709 when getDefaultSensor()==null.
+    # Inject the AOSP HIDL 2.1 multihal service + fake-subhal (synthetic
+    # accel/gyro data) into vendor. SELinux domain hal_sensors_default already
+    # exists in WSA's precompiled policy (verified via vendor_file_contexts).
+    SENSORS_SRC="$HOUDINI_LOCAL_PATH/sensors"
+    if [ -d "$SENSORS_SRC" ]; then
+        echo "Installing fake sensors HAL (multihal 2.1 + fake-subhal)..."
+        SENSOR_BIN="android.hardware.sensors@2.1-service.multihal"
+
+        # 1) Service binary → /vendor/bin/hw
+        sudo mkdir -p "$VENDOR_MNT/bin/hw"
+        sudo cp "$SENSORS_SRC/bin_hw/$SENSOR_BIN" "$VENDOR_MNT/bin/hw/" || abort "Failed to copy sensors HAL binary"
+        sudo chown root:root "$VENDOR_MNT/bin/hw/$SENSOR_BIN"
+        sudo chmod 755 "$VENDOR_MNT/bin/hw/$SENSOR_BIN"
+        sudo setfattr -n security.selinux -v "u:object_r:hal_sensors_default_exec:s0" "$VENDOR_MNT/bin/hw/$SENSOR_BIN" || echo "Warning: setfattr sensors binary failed"
+
+        # 2) Shared libs (subhal + sensors HIDL interface libs) → /vendor/lib64
+        sudo mkdir -p "$VENDOR_MNT/lib64"
+        for so in "$SENSORS_SRC"/lib64/*.so; do
+            n=$(basename "$so")
+            sudo cp "$so" "$VENDOR_MNT/lib64/$n" || abort "Failed to copy sensors lib $n"
+            sudo chown root:root "$VENDOR_MNT/lib64/$n"
+            sudo chmod 644 "$VENDOR_MNT/lib64/$n"
+            sudo setfattr -n security.selinux -v "u:object_r:vendor_file:s0" "$VENDOR_MNT/lib64/$n" || echo "Warning: setfattr $n failed"
+        done
+
+        # 3) init.rc → /vendor/etc/init
+        sudo mkdir -p "$VENDOR_MNT/etc/init"
+        sudo cp "$SENSORS_SRC/etc_init/$SENSOR_BIN".rc "$VENDOR_MNT/etc/init/$SENSOR_BIN.rc" 2>/dev/null \
+            || sudo cp "$SENSORS_SRC"/etc_init/*.rc "$VENDOR_MNT/etc/init/"
+        sudo setfattr -n security.selinux -v "u:object_r:vendor_configs_file:s0" "$VENDOR_MNT"/etc/init/android.hardware.sensors@2.1-service-multihal.rc || echo "Warning: setfattr sensors rc failed"
+
+        # 4) VINTF manifest fragment → /vendor/etc/vintf/manifest
+        sudo mkdir -p "$VENDOR_MNT/etc/vintf/manifest"
+        sudo cp "$SENSORS_SRC"/etc_vintf/*.xml "$VENDOR_MNT/etc/vintf/manifest/"
+        sudo setfattr -n security.selinux -v "u:object_r:vendor_configs_file:s0" "$VENDOR_MNT"/etc/vintf/manifest/android.hardware.sensors@2.1-multihal.xml || echo "Warning: setfattr sensors manifest failed"
+
+        # 5) multihal sub-HAL config → /vendor/etc/sensors/hals.conf
+        sudo mkdir -p "$VENDOR_MNT/etc/sensors"
+        sudo cp "$SENSORS_SRC/etc_sensors/hals.conf" "$VENDOR_MNT/etc/sensors/hals.conf"
+        sudo setfattr -n security.selinux -v "u:object_r:vendor_configs_file:s0" "$VENDOR_MNT/etc/sensors/hals.conf" || echo "Warning: setfattr hals.conf failed"
+
+        echo "Fake sensors HAL installed."
+    else
+        echo "Warning: sensors HAL dir not found at $SENSORS_SRC, skipping"
+    fi
+
     # Set timestamps for all files in vendor and system mounts
     echo "Setting timestamps for all files in vendor and system mounts..."
     sudo find "$VENDOR_MNT" -exec touch -hamt 200901010000.00 {} \; 2>/dev/null || echo "Warning: Failed to set timestamps for some vendor files"
