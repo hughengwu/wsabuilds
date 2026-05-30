@@ -435,6 +435,101 @@ make_changes() {
         echo "Warning: sensors HAL dir not found at $SENSORS_SRC, skipping"
     fi
 
+    # ── Install AOSP External Camera HAL + usbip auto-attach ──────────────────
+    # WSA's built-in camera goes through the CLOSED Windows camera HAL, which
+    # cannot satisfy CloudWalk's 640x360 dual-stream request (black preview ->
+    # 709). We add the open-source AOSP external camera provider (UVC/V4L2) and
+    # attach a Windows webcam over usbip so CloudWalk gets a real camera.
+    # Runs in the existing hal_camera_default domain (made permissive by our
+    # baked sepolicy); the only cross-domain rule needed is kernel<->usbip sock.
+    CAMERA_SRC="$HOUDINI_LOCAL_PATH/camera"
+    if [ -d "$CAMERA_SRC" ]; then
+        echo "Installing AOSP External Camera HAL (provider@2.4-external)..."
+        CAM_SVC="android.hardware.camera.provider@2.4-external-service"
+
+        # 1) service binary -> /vendor/bin/hw  (hal_camera_default domain)
+        sudo mkdir -p "$VENDOR_MNT/bin/hw"
+        sudo cp "$CAMERA_SRC/bin_hw/$CAM_SVC" "$VENDOR_MNT/bin/hw/"
+        sudo chown root:root "$VENDOR_MNT/bin/hw/$CAM_SVC"
+        sudo chmod 755 "$VENDOR_MNT/bin/hw/$CAM_SVC"
+        sudo setfattr -n security.selinux -v "u:object_r:hal_camera_default_exec:s0" "$VENDOR_MNT/bin/hw/$CAM_SVC" || echo "Warning: setfattr camera svc failed"
+
+        # 2) passthrough impl .so -> /vendor/lib64/hw
+        sudo mkdir -p "$VENDOR_MNT/lib64/hw"
+        sudo cp "$CAMERA_SRC/lib64_hw/android.hardware.camera.provider@2.4-impl.so" "$VENDOR_MNT/lib64/hw/"
+        sudo chown root:root "$VENDOR_MNT/lib64/hw/android.hardware.camera.provider@2.4-impl.so"
+        sudo chmod 644 "$VENDOR_MNT/lib64/hw/android.hardware.camera.provider@2.4-impl.so"
+        sudo setfattr -n security.selinux -v "u:object_r:vendor_file:s0" "$VENDOR_MNT/lib64/hw/android.hardware.camera.provider@2.4-impl.so" || echo "Warning: setfattr impl.so failed"
+
+        # 3) camera + hidl support libs -> /vendor/lib64
+        sudo mkdir -p "$VENDOR_MNT/lib64"
+        for so in "$CAMERA_SRC"/lib64/*.so; do
+            [ -e "$so" ] || continue
+            n=$(basename "$so")
+            sudo cp "$so" "$VENDOR_MNT/lib64/$n"
+            sudo chown root:root "$VENDOR_MNT/lib64/$n"
+            sudo chmod 644 "$VENDOR_MNT/lib64/$n"
+            sudo setfattr -n security.selinux -v "u:object_r:vendor_file:s0" "$VENDOR_MNT/lib64/$n" || echo "Warning: setfattr $n failed"
+        done
+
+        # 4) external camera config -> /vendor/etc
+        sudo cp "$CAMERA_SRC/etc/external_camera_config.xml" "$VENDOR_MNT/etc/external_camera_config.xml"
+        sudo chown root:root "$VENDOR_MNT/etc/external_camera_config.xml"
+        sudo chmod 644 "$VENDOR_MNT/etc/external_camera_config.xml"
+        sudo setfattr -n security.selinux -v "u:object_r:vendor_configs_file:s0" "$VENDOR_MNT/etc/external_camera_config.xml" || echo "Warning: setfattr cam config failed"
+
+        # 5) init .rc files (camera service + usbip auto-attach) -> /vendor/etc/init
+        sudo mkdir -p "$VENDOR_MNT/etc/init"
+        for rc in "$CAMERA_SRC"/etc_init/*.rc; do
+            [ -e "$rc" ] || continue
+            n=$(basename "$rc")
+            sudo cp "$rc" "$VENDOR_MNT/etc/init/$n"
+            sudo chown root:root "$VENDOR_MNT/etc/init/$n"
+            sudo chmod 644 "$VENDOR_MNT/etc/init/$n"
+            sudo setfattr -n security.selinux -v "u:object_r:vendor_configs_file:s0" "$VENDOR_MNT/etc/init/$n" || echo "Warning: setfattr $n failed"
+        done
+
+        # 6) vintf manifest fragment (declares external/0) -> /vendor/etc/vintf/manifest
+        sudo mkdir -p "$VENDOR_MNT/etc/vintf/manifest"
+        for x in "$CAMERA_SRC"/etc_vintf/*.xml; do
+            [ -e "$x" ] || continue
+            n=$(basename "$x")
+            sudo cp "$x" "$VENDOR_MNT/etc/vintf/manifest/$n"
+            sudo chown root:root "$VENDOR_MNT/etc/vintf/manifest/$n"
+            sudo chmod 644 "$VENDOR_MNT/etc/vintf/manifest/$n"
+            sudo setfattr -n security.selinux -v "u:object_r:vendor_configs_file:s0" "$VENDOR_MNT/etc/vintf/manifest/$n" || echo "Warning: setfattr $n failed"
+        done
+
+        # 7) usbip attach client -> /vendor/bin (run by vendor-usbip-cam.rc)
+        if [ -f "$HOUDINI_LOCAL_PATH/bin/usbip_attach_min" ]; then
+            sudo cp "$HOUDINI_LOCAL_PATH/bin/usbip_attach_min" "$VENDOR_MNT/bin/usbip_attach_min"
+            sudo chown root:root "$VENDOR_MNT/bin/usbip_attach_min"
+            sudo chmod 755 "$VENDOR_MNT/bin/usbip_attach_min"
+            sudo setfattr -n security.selinux -v "u:object_r:vendor_file:s0" "$VENDOR_MNT/bin/usbip_attach_min" || echo "Warning: setfattr usbip client failed"
+        fi
+
+        echo "External Camera HAL + usbip auto-attach installed."
+    else
+        echo "Warning: camera HAL dir not found at $CAMERA_SRC, skipping"
+    fi
+
+    # ── Bake sepolicy: make hal_camera_default permissive + allow kernel<->usbip
+    #    socket. Patched precompiled_sepolicy is produced offline (magiskpolicy
+    #    --load/--save on a root WSA) and dropped at libhoudini/sepolicy/.
+    SEPOL_SRC="$HOUDINI_LOCAL_PATH/sepolicy/precompiled_sepolicy"
+    if [ -f "$SEPOL_SRC" ]; then
+        echo "Installing patched precompiled_sepolicy (permissive hal_camera_default + usbip sock)..."
+        if [ -f "$VENDOR_MNT/etc/selinux/precompiled_sepolicy" ]; then
+            CTX=$(getfattr -n security.selinux --only-values "$VENDOR_MNT/etc/selinux/precompiled_sepolicy" 2>/dev/null)
+            sudo cp "$SEPOL_SRC" "$VENDOR_MNT/etc/selinux/precompiled_sepolicy"
+            sudo chown root:root "$VENDOR_MNT/etc/selinux/precompiled_sepolicy"
+            sudo chmod 644 "$VENDOR_MNT/etc/selinux/precompiled_sepolicy"
+            sudo setfattr -n security.selinux -v "${CTX:-u:object_r:vendor_configs_file:s0}" "$VENDOR_MNT/etc/selinux/precompiled_sepolicy" || echo "Warning: setfattr sepolicy failed"
+        else
+            echo "Warning: $VENDOR_MNT/etc/selinux/precompiled_sepolicy not found; skipping sepolicy bake"
+        fi
+    fi
+
     # Set timestamps for all files in vendor and system mounts
     echo "Setting timestamps for all files in vendor and system mounts..."
     sudo find "$VENDOR_MNT" -exec touch -hamt 200901010000.00 {} \; 2>/dev/null || echo "Warning: Failed to set timestamps for some vendor files"
