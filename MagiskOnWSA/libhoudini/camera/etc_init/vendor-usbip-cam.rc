@@ -10,7 +10,6 @@ service vendor-usbip-cam /vendor/bin/usbip_attach_min auto 1-6 300
     class hal
     user root
     group root system
-    seclabel u:r:hal_camera_default:s0
     oneshot
     disabled
 

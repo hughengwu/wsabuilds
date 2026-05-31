@@ -500,12 +500,16 @@ make_changes() {
             sudo setfattr -n security.selinux -v "u:object_r:vendor_configs_file:s0" "$VENDOR_MNT/etc/vintf/manifest/$n" || echo "Warning: setfattr $n failed"
         done
 
-        # 7) usbip attach client -> /vendor/bin (run by vendor-usbip-cam.rc)
+        # 7) usbip attach client -> /vendor/bin (run by vendor-usbip-cam.rc).
+        #    Label hal_camera_default_exec so init's automatic type_transition runs
+        #    it in hal_camera_default (the same proven path the camera service uses),
+        #    not a seclabel override. That domain is permissive (baked policy), and
+        #    kernel<->its socket is allowed, so the attach works under enforcing.
         if [ -f "$HOUDINI_LOCAL_PATH/bin/usbip_attach_min" ]; then
             sudo cp "$HOUDINI_LOCAL_PATH/bin/usbip_attach_min" "$VENDOR_MNT/bin/usbip_attach_min"
             sudo chown root:root "$VENDOR_MNT/bin/usbip_attach_min"
             sudo chmod 755 "$VENDOR_MNT/bin/usbip_attach_min"
-            sudo setfattr -n security.selinux -v "u:object_r:vendor_file:s0" "$VENDOR_MNT/bin/usbip_attach_min" || echo "Warning: setfattr usbip client failed"
+            sudo setfattr -n security.selinux -v "u:object_r:hal_camera_default_exec:s0" "$VENDOR_MNT/bin/usbip_attach_min" || echo "Warning: setfattr usbip client failed"
         fi
 
         # 8) ueventd rule so /dev/video* are created 0660 cameraserver:camera
