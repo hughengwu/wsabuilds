@@ -508,6 +508,29 @@ make_changes() {
             sudo setfattr -n security.selinux -v "u:object_r:vendor_file:s0" "$VENDOR_MNT/bin/usbip_attach_min" || echo "Warning: setfattr usbip client failed"
         fi
 
+        # 8) ueventd rule so /dev/video* are created 0660 cameraserver:camera
+        #    (else the cameraserver-uid HAL gets EACCES on the root:root 0600 node).
+        #    ueventd only reads fixed paths, so append into /vendor/etc/ueventd.rc.
+        if [ -f "$CAMERA_SRC/etc/ueventd-video.rc" ]; then
+            UEV="$VENDOR_MNT/etc/ueventd.rc"
+            if ! sudo grep -q '/dev/video\*' "$UEV" 2>/dev/null; then
+                echo "Appending /dev/video* rule to vendor ueventd.rc"
+                sudo sh -c "cat '$CAMERA_SRC/etc/ueventd-video.rc' >> '$UEV'"
+            fi
+            sudo chown root:root "$UEV"
+            sudo chmod 644 "$UEV"
+            sudo setfattr -n security.selinux -v "u:object_r:vendor_configs_file:s0" "$UEV" || echo "Warning: setfattr ueventd.rc failed"
+        fi
+
+        # 9) Disable WSA's closed Windows camera HAL so our external/0 is the only
+        #    camera CloudWalk can pick (it can't deliver 640x360 anyway, and usbip
+        #    steals its webcam). Remove its init .rc + vintf manifest fragment.
+        for wf in \
+            "$VENDOR_MNT/etc/init/android.hardware.camera-service.windows.rc" \
+            "$VENDOR_MNT/etc/vintf/manifest/android.hardware.camera-service.windows.xml" ; do
+            if [ -f "$wf" ]; then echo "Disabling Windows camera HAL: removing $(basename "$wf")"; sudo rm -f "$wf"; fi
+        done
+
         echo "External Camera HAL + usbip auto-attach installed."
     else
         echo "Warning: camera HAL dir not found at $CAMERA_SRC, skipping"

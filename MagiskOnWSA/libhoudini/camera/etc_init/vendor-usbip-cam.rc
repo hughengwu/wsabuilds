@@ -3,9 +3,10 @@
 # domain (made permissive by our baked sepolicy) and keeps retrying until the
 # host-side `usbipd bind` is in effect (budget 300s).
 #
-# NOTE: host IP / busid are baked here. vEthernet (WSL/Hyper-V) host = 172.20.160.1,
-# webcam busid = 1-6 on the validation machine. Adjust per-host if they differ.
-service vendor-usbip-cam /vendor/bin/usbip_attach_min 172.20.160.1 1-6 300
+# Host IP is auto-derived from eth0's subnet (.1), so it survives the vEthernet
+# IP changing across reboots. busid 1-6 = the webcam's USB port on the host;
+# change only if you plug the camera into a different physical port.
+service vendor-usbip-cam /vendor/bin/usbip_attach_min auto 1-6 300
     class hal
     user root
     group root system

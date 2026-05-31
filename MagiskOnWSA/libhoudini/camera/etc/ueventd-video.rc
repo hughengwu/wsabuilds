@@ -1,0 +1,5 @@
+# Give V4L2 video nodes (our usbip-attached UVC webcam) perms the camera HAL can
+# open. WSA's ueventd has no /dev/video rule, so nodes default to 0600 root:root
+# and the cameraserver-uid external HAL gets EACCES. ueventd applies this when the
+# node is created — atomically, before the HAL's inotify watcher tries to open it.
+/dev/video*               0660   cameraserver   camera
