@@ -613,6 +613,22 @@ finalize_wsa_image "system"
 # Finalize vendor image
 finalize_wsa_image "vendor"
 
+# ── Replace WSA's stock kernel with our custom one (UVC + V4L2 + USBIP_VHCI) ──
+# The external camera HAL needs /dev/video* and usbip; WSA's stock kernel has
+# neither. Baking the kernel here makes the released package install-ready (no
+# manual Tools/kernel swap). Magisk lives in Tools/initrd.img, not the kernel,
+# so this is root-solution-agnostic.
+CUSTOM_KERNEL="$(realpath ./libhoudini)/kernel/bzImage"
+if [ -f "$CUSTOM_KERNEL" ] && [ -f "$WSA_PATH/Tools/kernel" ]; then
+    echo "Replacing Tools/kernel with custom UVC+usbip kernel..."
+    cp "$WSA_PATH/Tools/kernel" "$WSA_PATH/Tools/kernel.stock.bak"
+    cp "$CUSTOM_KERNEL" "$WSA_PATH/Tools/kernel"
+    echo "  custom kernel installed ($(stat -c%s "$WSA_PATH/Tools/kernel") bytes)"
+else
+    echo "Warning: custom kernel or Tools/kernel missing; keeping stock kernel"
+    echo "  CUSTOM_KERNEL=$CUSTOM_KERNEL  TOOLS=$WSA_PATH/Tools/kernel"
+fi
+
 # Clean up mount base directory
 sudo rm -rf "$MOUNT_BASE" 2>/dev/null || true
 
